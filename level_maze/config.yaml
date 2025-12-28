@@ -1,0 +1,16 @@
+window:
+  width: 1280
+  height: 720
+  title: "Level Maze"
+  fps: 60
+
+abilities:
+  current_levels:
+    dash: 1
+    roar: 1
+  dash:
+    cooldown: 10.0
+    distance_multiplier: 2.0
+  roar:
+    cooldown: 30.0
+    push_distance_multiplier: 5.0

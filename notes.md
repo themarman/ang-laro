@@ -1,0 +1,7 @@
+- create a package for a game called level maze
+- this is a top down view game.
+- there should be 4elements
+    - player which is a simple circle with a small arrow that appear on the side of the circle where the play is looking. the direction where the player is looking is controlled by the controller's let stick and the direction of motion is controlled by the controller's right stick. the player cannot move pass the edges of the arena and the obstacles.
+    - the arena, boundaries that have an exit and entry point. the exit and entree is a gap in the wall of the arena boundaries. The arena is shaped in a rectangle. make the boundaries have a brick texture. make this texture changeable for later levels.
+    - obstacles, same material as the boundaries but smaller shapes randomaly positioned on the arena. each obstacles rectangle endges should a have a minimum distance from one another, that is 1.5 times the diameter of the player.
+    - the enemies, circles that are the same size as the player but different color. they also have an arrow that indicate where they are looking. they can only move where they are looking. and they can only see in straight lines that are blocked by the boundaries or obstacles. if the enemy see the player, it will move towards the player. if the enemy cannot see the player, it will move in the last direction it saw the player and after reaching it will move in a random direction.
