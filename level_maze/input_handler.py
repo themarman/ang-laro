@@ -23,12 +23,12 @@ class InputHandler:
         vector = pygame.Vector2(0, 0)
 
         if self.controller_mode:
-            # Right Stick (usually axis 2 and 3, or 3 and 4 depending on OS/Driver)
-            # Standard XInput: Axis 2 (Horizontal), Axis 3 (Vertical)
+            # Left Stick (usually axis 0 and 1)
+            # Standard XInput: Axis 0 (Horizontal), Axis 1 (Vertical)
             # Need to verify per environment, but using standard mappings for now.
             try:
-                x = self.joysticks[0].get_axis(2) # Right Stick X
-                y = self.joysticks[0].get_axis(3) # Right Stick Y
+                x = self.joysticks[0].get_axis(0) # Left Stick X
+                y = self.joysticks[0].get_axis(1) # Left Stick Y
                 if abs(x) > 0.1 or abs(y) > 0.1: # Deadzone
                     vector.x = x
                     vector.y = y
@@ -53,21 +53,21 @@ class InputHandler:
     def get_look_vector(self, player_pos):
         """
         Returns a normalized Vector2 for looking direction.
-        Mapped to LEFT STICK (GDD 2.2).
-        Fallback: Mouse Position relative to player.
         """
-        vector = pygame.Vector2(1, 0) # Default Look right
+        vector = pygame.Vector2(0, 0)
 
+        # Right Stick (usually axis 2 and 3)
         if self.controller_mode:
-            # Left Stick (usually axis 0 and 1)
             try:
-                x = self.joysticks[0].get_axis(0)
-                y = self.joysticks[0].get_axis(1)
+                x = self.joysticks[0].get_axis(2)
+                y = self.joysticks[0].get_axis(3)
                 if abs(x) > 0.1 or abs(y) > 0.1:
                     vector = pygame.Vector2(x, y).normalize()
-                    return vector
             except:
                 pass
+            
+            if vector.length_squared() > 0:
+                return vector
         
         # Mouse Fallback
         # Only use mouse if NO controller input for look was detected (or just always override if moved?)

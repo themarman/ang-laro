@@ -15,8 +15,8 @@
 ### 2.2 Controls
 The game utilizes a dual-stick controller scheme with a unique mapping configuration:
 *   **Sticks:**
-    *   **Left Stick:** Controls **Look Direction** (Rotation). The player character rotates to face the direction the stick is pushed.
-    *   **Right Stick:** Controls **Motion Direction** (Movement). The player moves in the direction the stick is pushed, independent of facing.
+    *   **Left Stick:** Controls **Motion Direction** (Movement). The player moves in the direction the stick is pushed, independent of facing.
+    *   **Right Stick:** Controls **Look Direction** (Rotation). The player character rotates to face the direction the stick is pushed.
     *   *Note:* This separates movement vector from look vector, allowing for strafing and backing away while watching enemies.
 *   **Buttons:**
     *   **Select Button:** Toggles the **Help Overlay**.

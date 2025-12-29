@@ -1,8 +1,6 @@
+from level_maze.vfx import VFXManager
+import random
 import pygame
-import math
-
-import pygame
-import math
 
 class Player:
     def __init__(self, x, y, config_manager, radius=15, color=(0, 100, 255)):
@@ -36,12 +34,46 @@ class Player:
         # Rect for simple collision (centered on position)
         self.rect = pygame.Rect(x - radius, y - radius, radius * 2, radius * 2)
 
-    def update(self, delta_time, input_handler, arena):
+        # VFX State
+        self.vfx = VFXManager()
+        self.trail_ghosts = [] # List of tuples: (position_vector, alpha_int, color_tuple)
+        self.roar_waves = [] # List of objects: {'pos': vec, 'radius': float, 'alpha': int, 'max_radius': float, 'thickness': int}
+        
+        # Frame Flags for Main Loop
+        self.just_dashed = False
+        self.just_roared = False
+
+    def update(self, delta_time, input_handler, arena, obstacles):
+        # Reset frame flags
+        self.just_dashed = False
+        self.just_roared = False
+
         # 0. Handle Cooldowns
         if self.dash_timer > 0:
             self.dash_timer -= delta_time
         if self.roar_timer > 0:
             self.roar_timer -= delta_time
+            
+        # VFX Updates
+        self.vfx.update(delta_time)
+        
+        # 1. Update Ghosts (Fade out)
+        active_ghosts = []
+        for ghost in self.trail_ghosts:
+            pos, alpha, col = ghost
+            new_alpha = alpha - (600 * delta_time) # Faster fade
+            if new_alpha > 0:
+                active_ghosts.append((pos, new_alpha, col))
+        self.trail_ghosts = active_ghosts
+        
+        # 2. Update Roar Waves (Expand and Fade)
+        active_waves = []
+        for wave in self.roar_waves:
+            wave['radius'] += 400 * delta_time # Expansion speed
+            wave['alpha'] -= 200 * delta_time # Fade speed
+            if wave['alpha'] > 0 and wave['radius'] < wave['max_radius']:
+                active_waves.append(wave)
+        self.roar_waves = active_waves
 
         # 0.5 Handle Knockback Decay
         if self.knockback.length_squared() > 100: # Threshold
@@ -54,19 +86,7 @@ class Player:
         look_vec = input_handler.get_look_vector(self.position)
 
         # 2. Update Look Direction (if input exists)
-        # Note: If input_handler returns valid look vector, use it.
-        # If stick is neutral, we might want to keep last direction.
-        # The input handler returns a default or calculates one.
-        # We need to refine InputHandler to return None if neutral so we don't snap to (1,0)
-        # But for now, let's assume valid vector or same as previous if handled there.
-        # Actually input_handle logic:
-        # Controller: returns (0,0) if neutral? No, code says checking deadzone.
-        # Mouse: always returns vector.
-        
-        # Let's adjust logic:
-        # If look_vec is length > 0, update
         if look_vec.length_squared() > 0.1:
-             # Just ensures we don't snap to 0
              self.look_direction = look_vec
 
         # 3. Update Position
@@ -75,18 +95,85 @@ class Player:
         # Combine input movement and knockback
         velocity = (move_vec * self.speed) + self.knockback
         
-        self.position += velocity * delta_time
-
-        # 4. Arena Collision (Clamping)
-        # Update rect to new position to check
-        self.rect.center = (int(self.position.x), int(self.position.y))
+        # Calculate potential new position
+        potential_pos = self.position + velocity * delta_time
+        potential_rect = self.rect.copy()
+        potential_rect.center = (int(potential_pos.x), int(potential_pos.y))
         
-        # Clamp to arena
-        clamped_rect = arena.clamp(self.rect)
-        self.rect = clamped_rect
-        self.position = pygame.Vector2(self.rect.centerx, self.rect.centery)
+        # 4. Arena & Obstacle Collision
+        # First check simple arena bounds
+        clamped_rect = arena.clamp(potential_rect)
+        
+        # Then check obstacles
+        if not self.check_obstacle_collision(clamped_rect, obstacles):
+            # No collision, apply move
+            self.rect = clamped_rect
+            self.position = pygame.Vector2(self.rect.centerx, self.rect.centery)
+        else:
+            # Collision!
+            # Simple response: Stop.
+            # Ideally: Slide along wall.
+            # Attempt sliding (x only, then y only)
+            
+            # X Only
+            pos_x = pygame.Vector2(potential_pos.x, self.position.y)
+            rect_x = self.rect.copy()
+            rect_x.center = (int(pos_x.x), int(pos_x.y))
+            rect_x = arena.clamp(rect_x)
+            
+            if not self.check_obstacle_collision(rect_x, obstacles):
+                 self.position.x = pos_x.x
+                 self.rect = rect_x
+            else:
+                # Y Only
+                pos_y = pygame.Vector2(self.position.x, potential_pos.y)
+                rect_y = self.rect.copy()
+                rect_y.center = (int(pos_y.x), int(pos_y.y))
+                rect_y = arena.clamp(rect_y)
+                
+                if not self.check_obstacle_collision(rect_y, obstacles):
+                     self.position.y = pos_y.y
+                     self.rect = rect_y
+                # Else: Blocked completely (Corner usually)
+    
+    def check_obstacle_collision(self, rect, obstacles):
+        for obs in obstacles:
+            if rect.colliderect(obs.rect):
+                return True
+        return False
 
     def draw(self, surface):
+        # Draw Dash Ghosts (Additive)
+        for pos, alpha, col in self.trail_ghosts:
+            ghost_surf = pygame.Surface((self.radius * 2, self.radius * 2), pygame.SRCALPHA)
+            # Tint color towards Cyan for juice
+            c = (col[0], col[1], col[2], int(alpha))
+            pygame.draw.circle(ghost_surf, c, (self.radius, self.radius), self.radius)
+            surface.blit(ghost_surf, (pos.x - self.radius, pos.y - self.radius), special_flags=pygame.BLEND_ADD)
+            
+        # Draw Roar Waves (Glowing Rings)
+        for wave in self.roar_waves:
+            max_r = int(wave['max_radius'])
+            wave_surf = pygame.Surface((max_r * 2, max_r * 2), pygame.SRCALPHA)
+            center = (max_r, max_r)
+            
+            # Glowing Orange/Gold
+            alpha = int(wave['alpha'])
+            color = (255, 150, 50, alpha) 
+            
+            # Draw multiple rings for "thick" pulse
+            pygame.draw.circle(wave_surf, color, center, int(wave['radius']), wave['thickness'])
+            # Inner faint ring
+            if wave['radius'] > 10:
+                pygame.draw.circle(wave_surf, (255, 200, 100, int(alpha/2)), center, int(wave['radius'] - 5), 2)
+            
+            # Blit at position where roar occurred
+            draw_pos = (wave['pos'].x - max_r, wave['pos'].y - max_r)
+            surface.blit(wave_surf, draw_pos, special_flags=pygame.BLEND_ADD)
+            
+        # Draw Particles
+        self.vfx.draw(surface)
+            
         # Draw Body
         pygame.draw.circle(surface, self.color, (int(self.position.x), int(self.position.y)), self.radius)
         
@@ -94,16 +181,12 @@ class Player:
         # Calculate arrow tip
         arrow_length = self.radius + 5
         arrow_tip = self.position + self.look_direction * arrow_length
-        pass # To be fully implemented with a nice triangle, for now a line
         pygame.draw.line(surface, (255, 255, 255), self.position, arrow_tip, 3)
         
         # Draw small circle at tip
         pygame.draw.circle(surface, (255, 0, 0), (int(arrow_tip.x), int(arrow_tip.y)), 3)
 
         # Draw Level/XP (Above Head)
-        # Font needed? Should init font in main or pass it. 
-        # For prototype, just print to console or crude bar.
-        # Let's draw a small yellow bar for XP
         pygame.draw.rect(surface, (255, 255, 0), (self.position.x - 20, self.position.y - 32, 40 * (self.xp / self.xp_to_next_level), 3))
 
         # Draw Health Bar (Simple)
@@ -157,24 +240,25 @@ class Player:
     def attempt_dash(self):
         if self.dash_timer <= 0:
             # Dash!
-            # Moves 2x diameter in facing direction.
-            # Diameter = 2*radius. 2x diameter = 4 * radius.
-            distance = 4 * self.radius # GDD: "2 times its diameter"
-            
-            # Apply as an immediate position shift? Or high velocity impulse?
-            # GDD says "move very quickly". Teleporting might clip walls.
-            # Impulse is safer for physics engine, but here we have manual placement.
-            # Let's add a massive burst of velocity to knockback/momentum or just direct shift checked against walls.
-            # Since we have "step" logic in update, applying a huge velocity frame 1 is fine if we separate it.
-            # However, simpler implementation: Instant shift checked by arena clamp.
-            
-            # Use current look direction
+            distance = 4 * self.radius 
             dash_vector = self.look_direction.normalize() * distance
             
-            # We can just apply this to position immediately, update loop will clamp it.
+            # Spawn Ghosts + Particles
+            start_pos = self.position.copy()
+            for i in range(1, 6): # More ghosts (5)
+                 ghost_pos = start_pos + dash_vector * (i / 5.0)
+                 # Cyan/Blue tint for electric feel
+                 self.trail_ghosts.append((ghost_pos, 200, (0, 255, 255)))
+                 
+            # Emit Spark Particles backwards
+            # Direction is -dash_vector
+            reverse_dir = -dash_vector.normalize()
+            self.vfx.emit_directional(start_pos, reverse_dir, 20, (100, 255, 255), 200, spread_angle=45)
+
             self.position += dash_vector
             
             self.dash_timer = self.dash_cooldown_max
+            self.just_dashed = True
             print("Player Dashed!")
             return True
         return False
@@ -182,10 +266,25 @@ class Player:
     def attempt_roar(self):
         if self.roar_timer <= 0:
             self.roar_timer = self.roar_cooldown_max
+            
+            # Spawn Multi-Ring Roar Wave
+            rings = 3
+            for i in range(rings):
+                self.roar_waves.append({
+                    'pos': self.position.copy(),
+                    'radius': 10.0 + (i * 20),
+                    'alpha': 255,
+                    'max_radius': self.get_roar_radius() + (i * 30),
+                    'thickness': 5 - i # Inner rings thinner
+                })
+            
+            # Emit Burst Particles
+            self.vfx.emit(self.position, 60, (255, 100, 0), 100, 300, size_max=6, life=0.6)
+            
+            self.just_roared = True
             print("Player Roared!")
-            return True # Signal to main loop to handle effects
+            return True 
         return False
         
     def get_roar_radius(self):
-        # "5 times the player's diameter" -> 10 * radius
         return 10 * self.radius

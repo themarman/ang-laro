@@ -1,6 +1,6 @@
 window:
-  width: 1280
-  height: 720
+  width: 1920
+  height: 1080
   title: "Level Maze"
   fps: 60
 
@@ -14,3 +14,6 @@ abilities:
   roar:
     cooldown: 30.0
     push_distance_multiplier: 5.0
+
+enemies:
+  count: 15
