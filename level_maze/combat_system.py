@@ -26,6 +26,10 @@ class CombatSystem:
                  self.apply_combat_interaction(player, enemy)
 
     def apply_combat_interaction(self, player, enemy):
+        # 0. Check Invulnerability
+        if player.is_invulnerable():
+            return
+
         # 1. Calculate direction
         diff = player.position - enemy.position
         if diff.length_squared() == 0:
@@ -98,3 +102,15 @@ class CombatSystem:
                     # For now just apply additive knockback to ensure they fly apart
                     e1.apply_knockback(normal * bounce_force)
                     e2.apply_knockback(-normal * bounce_force)
+
+    def resolve_bomb_collisions(self, bombs, enemies):
+        for bomb in bombs:
+            if not bomb.is_active:
+                continue
+                
+            for enemy in enemies:
+                # Apply Push Force
+                # (Roar Bomb doesn't do damage, just pushes)
+                force = bomb.get_push_force(enemy.position)
+                if force.length_squared() > 0:
+                     enemy.apply_knockback(force)

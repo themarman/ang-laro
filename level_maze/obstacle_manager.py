@@ -7,6 +7,9 @@ class ObstacleManager:
         self.obstacles = []
         self.min_gap = 45 # 1.5 * Player Diameter (30)
 
+    def reset(self):
+        self.obstacles = []
+
     def generate_obstacles(self, arena, player_safe_zone, num_obstacles=10):
         self.obstacles = []
         

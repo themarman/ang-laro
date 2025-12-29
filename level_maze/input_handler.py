@@ -2,7 +2,7 @@ import pygame
 import math
 
 class InputHandler:
-    def __init__(self):
+    def __init__(self, config_manager=None):
         # Initialize controller if available
         self.joysticks = []
         for i in range(pygame.joystick.get_count()):
@@ -13,6 +13,52 @@ class InputHandler:
         self.controller_mode = len(self.joysticks) > 0
         if self.controller_mode:
             print(f"Controller detected: {self.joysticks[0].get_name()}")
+            
+        # Load Controls from Config
+        self.controls = {
+            'keyboard': {'dash': pygame.K_SPACE, 'roar': pygame.K_LSHIFT},
+            'gamepad': {'dash': 0, 'roar': 2}
+        }
+        
+        if config_manager:
+            try:
+                kb_config = config_manager.get("controls.keyboard")
+                gp_config = config_manager.get("controls.gamepad")
+                
+                # Helper to parse key with aliases
+                def parse_key(k_name):
+                    k_name = k_name.lower().strip()
+                    aliases = {
+                        'lshift': 'left shift',
+                        'rshift': 'right shift',
+                        'lctrl': 'left ctrl',
+                        'rctrl': 'right ctrl',
+                        'lalt': 'left alt',
+                        'ralt': 'right alt',
+                        'enter': 'return',
+                        'esc': 'escape'
+                    }
+                    return pygame.key.key_code(aliases.get(k_name, k_name))
+
+                if kb_config:
+                    if 'dash' in kb_config:
+                        try:
+                            self.controls['keyboard']['dash'] = parse_key(kb_config['dash'])
+                        except ValueError as ve:
+                            print(f"Warning: Invalid keyboard key '{kb_config['dash']}' for dash. Using default.")
+                    
+                    if 'roar' in kb_config: 
+                        try:
+                            self.controls['keyboard']['roar'] = parse_key(kb_config['roar'])
+                        except ValueError as ve:
+                            print(f"Warning: Invalid keyboard key '{kb_config['roar']}' for roar. Using default.")
+
+                if gp_config:
+                    if 'dash' in gp_config: self.controls['gamepad']['dash'] = int(gp_config['dash'])
+                    if 'roar' in gp_config: self.controls['gamepad']['roar'] = int(gp_config['roar'])
+                    
+            except Exception as e:
+                print(f"Error loading controls from config: {e}. Using defaults.")
 
     def get_move_vector(self):
         """
@@ -83,35 +129,86 @@ class InputHandler:
     def get_abilities_state(self):
         """
         Returns dict of ability states: {'dash': bool, 'roar': bool}
-        Dash: Space / Controller Button 0 (A/Cross)
-        Roar: Shift / Controller Button 2 (X/Square) or 1 (B/Circle) - GDD says Shift/X (West)
+        Dash: Configured Key / Controller Button
+        Roar: Configured Key / Controller Button
         """
         states = {'dash': False, 'roar': False}
         
+        dash_btn = self.controls['gamepad']['dash']
+        roar_btn = self.controls['gamepad']['roar']
+        
+        dash_key = self.controls['keyboard']['dash']
+        roar_key = self.controls['keyboard']['roar']
+
         if self.controller_mode:
             try:
-                # Dash: A button (0)
-                if self.joysticks[0].get_button(0):
+                # Dash
+                if self.joysticks[0].get_button(dash_btn):
                     states['dash'] = True
                 
-                # Roar: X button (2) - varies by controller, usually West button
-                if self.joysticks[0].get_button(2):
+                # Roar
+                if self.joysticks[0].get_button(roar_btn):
                     states['roar'] = True
             except:
                 pass
 
-        # Keyboard Fallback
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE]:
-            states['dash'] = True
-        if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
-            states['roar'] = True
-        if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
-            states['roar'] = True
-            
         return states
 
-    def get_ui_state(self):
+    def get_secondary_ability_state(self):
+        is_secondary = False
+        
+        # Keyboard
+        keys = pygame.key.get_pressed()
+        sec_key_name = "e"
+        if 'keyboard' in self.controls:
+             sec_key_name = self.controls.get('keyboard', {}).get('secondary', 'e')
+
+        sec_key = pygame.key.key_code(sec_key_name)
+        if keys[sec_key]:
+            is_secondary = True
+            
+        # Gamepad
+        if self.controller_mode and len(self.joysticks) > 0:
+            sec_btn = 3
+            if 'gamepad' in self.controls:
+                 sec_btn = int(self.controls.get('gamepad', {}).get('secondary', 3))
+
+            try:
+                if self.joysticks[0].get_button(sec_btn):
+                    is_secondary = True
+            except:
+                pass
+                
+        return is_secondary
+
+    def get_menu_wheel_state(self):
+        is_menu = False
+        
+        # Keyboard
+        keys = pygame.key.get_pressed()
+        menu_key_name = "q"
+        if 'keyboard' in self.controls:
+             menu_key_name = self.controls.get('keyboard', {}).get('menu_wheel', 'q')
+             
+        menu_key = pygame.key.key_code(menu_key_name)
+        if keys[menu_key]:
+            is_menu = True
+            
+        # Gamepad
+        if self.controller_mode and len(self.joysticks) > 0:
+            menu_btn = 4
+            if 'gamepad' in self.controls:
+                 menu_btn = int(self.controls.get('gamepad', {}).get('menu_wheel', 4))
+
+            try:
+                if self.joysticks[0].get_button(menu_btn):
+                    is_menu = True
+            except:
+                pass
+                
+        return is_menu
+
+    def get_ui_state(self, events):
         """
         Returns dict of UI inputs: {'select': bool}
         Select: Tab / Controller Button (Back/Select - varies, let's look for common ones)

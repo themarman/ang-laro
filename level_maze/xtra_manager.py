@@ -10,6 +10,11 @@ class XtraManager:
         self.spawn_interval_max = 15.0
         self.next_spawn_time = 5.0
 
+    def reset(self):
+        self.xtras = []
+        self.spawn_timer = 0
+        self.next_spawn_time = 5.0
+
     def update(self, dt, arena, obstacles):
         # Update existing
         for xtra in self.xtras:

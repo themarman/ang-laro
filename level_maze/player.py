@@ -1,6 +1,8 @@
 from level_maze.vfx import VFXManager
+from level_maze.roar_bomb import RoarBomb
 import random
 import pygame
+import math
 
 class Player:
     def __init__(self, x, y, config_manager, radius=15, color=(0, 100, 255)):
@@ -16,6 +18,7 @@ class Player:
         # Abilities Config
         self.dash_config = config_manager.get_ability_config("dash")
         self.roar_config = config_manager.get_ability_config("roar")
+        self.bomb_config = config_manager.get("abilities.roar_bomb") # Direct get as it might not be in default helper
         
         self.dash_cooldown_max = self.dash_config.get("cooldown", 10.0)
         self.dash_dist_mult = self.dash_config.get("distance_multiplier", 2.0)
@@ -23,8 +26,18 @@ class Player:
         self.roar_cooldown_max = self.roar_config.get("cooldown", 30.0)
         self.roar_push_mult = self.roar_config.get("push_distance_multiplier", 5.0)
         
+        self.bomb_cooldown_max = self.bomb_config.get("cooldown", 15.0) if self.bomb_config else 15.0
+        
         self.dash_timer = 0.0
+        self.dash_active_timer = 0.0 # Timer for i-frames
+        self.dash_duration = 0.25 # Duration of invulnerability after dash
         self.roar_timer = 0.0
+        self.bomb_timer = 0.0
+        
+        # Radial Menu State
+        self.selected_ability = "roar_bomb" # Default
+        self.is_radial_menu_open = False
+        self.available_abilities = ["roar_bomb"] # Extendable
         
         # XP System
         self.xp = 0
@@ -51,11 +64,18 @@ class Player:
         # 0. Handle Cooldowns
         if self.dash_timer > 0:
             self.dash_timer -= delta_time
+        if self.dash_active_timer > 0:
+            self.dash_active_timer -= delta_time
+            
         if self.roar_timer > 0:
             self.roar_timer -= delta_time
+        if self.bomb_timer > 0:
+            self.bomb_timer -= delta_time
             
         # VFX Updates
         self.vfx.update(delta_time)
+        
+        # Menu State handled in main.py
         
         # 1. Update Ghosts (Fade out)
         active_ghosts = []
@@ -142,6 +162,17 @@ class Player:
                 return True
         return False
 
+    def check_obstacle_collision(self, rect, obstacles):
+        for obs in obstacles:
+            if rect.colliderect(obs.rect):
+                return True
+        return False
+
+    def set_active_ability(self, ability_name):
+        if ability_name in self.available_abilities:
+            self.selected_ability = ability_name
+            print(f"Ability set to: {ability_name}")
+
     def draw(self, surface):
         # Draw Dash Ghosts (Additive)
         for pos, alpha, col in self.trail_ghosts:
@@ -175,7 +206,13 @@ class Player:
         self.vfx.draw(surface)
             
         # Draw Body
-        pygame.draw.circle(surface, self.color, (int(self.position.x), int(self.position.y)), self.radius)
+        body_color = self.color
+        # Flash white if invulnerable
+        if self.is_invulnerable():
+             if int(pygame.time.get_ticks() / 50) % 2 == 0:
+                 body_color = (200, 255, 255)
+        
+        pygame.draw.circle(surface, body_color, (int(self.position.x), int(self.position.y)), self.radius)
         
         # Draw Look Indicator (Arrow)
         # Calculate arrow tip
@@ -211,8 +248,41 @@ class Player:
         else:
              # Ready indicator
             pygame.draw.circle(surface, (255, 150, 0), (int(self.position.x + 15), int(self.position.y + 22)), 2)
+            
+        # Draw Radial Menu if Open
+        if self.is_radial_menu_open:
+            self.draw_radial_menu(surface)
+
+    def draw_radial_menu(self, surface):
+        # Draw ring around player
+        center = (int(self.position.x), int(self.position.y))
+        radius = 80
+        
+        # Semi-transparent BG
+        menu_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(menu_surf, (0, 0, 0, 150), (radius, radius), radius)
+        
+        # Draw Selection Slots
+        # Currently only Roar Bomb (Top)
+        # Draw icon/text
+        font = pygame.font.SysFont("Arial", 16, bold=True)
+        text = font.render("Roar Bomb", True, (255, 255, 255))
+        
+        # Position at top
+        text_rect = text.get_rect(center=(radius, radius - 50))
+        menu_surf.blit(text, text_rect)
+        
+        # Highlight Selected
+        if self.selected_ability == "roar_bomb":
+            pygame.draw.circle(menu_surf, (0, 255, 0), (radius, radius - 50), 5)
+        
+        surface.blit(menu_surf, (center[0] - radius, center[1] - radius))
 
     def take_damage(self, amount):
+        if self.is_invulnerable():
+            print("Player Invulnerable! Damage blocked.")
+            return
+
         self.health -= amount
         print(f"Player took {amount} damage. HP: {self.health}")
 
@@ -230,6 +300,7 @@ class Player:
         # Buffs (Reduce cooldowns by 10%)
         self.dash_cooldown_max *= 0.9
         self.roar_cooldown_max *= 0.9
+        self.bomb_cooldown_max *= 0.9
         self.health = 100 # Full heal on level up?
         
         print(f"LEVEL UP! Level {self.level}. Cooldowns reduced.")
@@ -258,10 +329,14 @@ class Player:
             self.position += dash_vector
             
             self.dash_timer = self.dash_cooldown_max
+            self.dash_active_timer = self.dash_duration # Trigger invulnerability
             self.just_dashed = True
             print("Player Dashed!")
             return True
         return False
+
+    def is_invulnerable(self):
+        return self.dash_active_timer > 0
 
     def attempt_roar(self):
         if self.roar_timer <= 0:
@@ -286,5 +361,24 @@ class Player:
             return True 
         return False
         
+    def attempt_secondary_ability(self):
+        if self.selected_ability == "roar_bomb":
+            if self.bomb_timer <= 0:
+                self.bomb_timer = self.bomb_cooldown_max
+                
+                # Throw Bomb backwards? Or forwards?
+                # User request: "chuck behind"
+                # But typically abilities are aimed.
+                # Request says: "it is something the player can chuck behind"
+                # This implies backward throw.
+                direction = -self.look_direction
+                
+                bomb = RoarBomb(self.position, direction, self.bomb_config)
+                print("Player threw Roar Bomb!")
+                return bomb
+            else:
+                print("Bomb on cooldown")
+        return None
+
     def get_roar_radius(self):
         return 10 * self.radius

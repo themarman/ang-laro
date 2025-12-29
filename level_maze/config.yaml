@@ -1,19 +1,56 @@
+# Window Configuration
 window:
   width: 1920
   height: 1080
   title: "Level Maze"
   fps: 60
 
+# Player Ability Settings
 abilities:
+  # Default starting levels for abilities
   current_levels:
     dash: 1
     roar: 1
+  # Dash Ability Configuration
   dash:
-    cooldown: 10.0
-    distance_multiplier: 2.0
+    cooldown: 10.0          # Seconds between dashes
+    distance_multiplier: 2.0 # Power of dash
+  # Roar Ability Configuration
   roar:
-    cooldown: 30.0
+    cooldown: 30.0          # Seconds between roars
     push_distance_multiplier: 5.0
+  # Roar Bomb Configuration
+  roar_bomb:
+    cooldown: 15.0
+    duration: 10.0
+    radius: 150.0
+    push_force: 300.0
+    throw_speed: 500.0
 
+# Game Logic Settings
 enemies:
-  count: 15
+  count: 15                 # Number of enemies to spawn
+
+# Control Mappings
+# Keyboard keys: Use string representations (e.g., "SPACE", "LSHIFT", "a", "return")
+# Gamepad buttons: 0=A/Cross, 1=B/Circle, 2=X/Square, 3=Y/Triangle
+controls:
+  keyboard:
+    dash: "space"
+    roar: "left shift"
+    secondary: "e"
+    menu_wheel: "q"
+  gamepad:
+    roar: 2      # Button 2: X (Xbox) / Square (PS)
+    dash: 1      # Button 1: B (Xbox) / Circle (PS)
+    secondary: 3 # Button 3: Y (Xbox) / Triangle (PS)
+    menu_wheel: 4 # Button 4: Left Bumper (LB) / L1
+    
+    # Other available buttons for reference:
+    unknown1: 0  # Button 0: A (Xbox) / Cross (PS)
+    unknown4: 5  # Button 5: Right Bumper (RB) / R1
+    unknown5: 6  # Button 6: Back (Xbox) / Share (PS)
+    unknown6: 7  # Button 7: Start (Xbox) / Options (PS)
+    unknown7: 8  # Button 8: Left Stick Click (L3)
+    unknown8: 9  # Button 9: Right Stick Click (R3)
+    unknown9: 10 # Button 10: Guide (Xbox) / PS Button
