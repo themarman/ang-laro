@@ -53,39 +53,24 @@ class RadialMenu:
         # Note: Pygame joy axis: y is positive DOWN. 
         # We need generic math. Angle 0 is usually Right. -90 is Up.
         
-        self.selected_index = -1
+        # Sticky Selection: Do not reset selected_index every frame.
+        # self.selected_index = -1  <-- REMOVED
+        
         if len(self.items) > 0 and input_vec.length_squared() > 0.25: # Deadzone
             angle = math.degrees(math.atan2(input_vec.y, input_vec.x))
             # Angle is -180 to 180. 0 is Right. 90 is Down. -90 is Up.
-            
-            # Divide 360 by N items.
-            # We want sector 0 to be at top (-90 degrees) usually?
-            # Or radial distribution starting from Right?
-            # Let's align 0 to Top (-90).
-            # Shift angle so 0 is at -90?
-            # Standard math: 0 is Right.
             
             step = 360 / len(self.items)
             
             # Normalize angle to 0-360
             if angle < 0: angle += 360
             
-            # Rotate so first sector is centered at TOP (270 degrees or -90)
-            # If we want Item 0 at Top:
-            # We need standard angle to map to index 0 when angle is around 270.
-            
-            # Let's just use standard 0 starts at Right and goes Clockwise logic for simplicity?
-            # Actually, user expects Up = Top Item.
-            
+            # Use same shifted angle logic as before
             # Shift angle by +90 so 0 is Up/Top (270 + 90 = 360/0)
-            # Original: Right=0, Down=90, Left=180, Up=270
-            # Shifted (+90): Right=90, Down=180, Left=270, Up=0 (360) 
             angle_shifted = (angle + 90) % 360
             
             # Index = floor(angle / step)
-            # However, we want sector to CENTER on the direction, not start there.
-            # So offset by step/2.
-            
+            # Offset by step/2 to center sectors
             angle_offset = (angle_shifted + (step/2)) % 360
             index = int(angle_offset // step)
             self.selected_index = index % len(self.items)
@@ -152,46 +137,68 @@ class RadialMenu:
             
             # Colors
             if is_selected:
-                color = self.col_sector_hover
-                border_col = self.col_selected_acc
-                # Expand slightly
-                expand = 10 * scale
+                color = (0, 100, 200, 240) # Bright Blue/Cyan
+                border_col = (200, 255, 255) # Bright White-Cyan
+                # Expand more
+                expand = 20 * scale
                 p2 = (center_x + math.cos(a1) * (current_radius + expand), center_y + math.sin(a1) * (current_radius + expand))
                 p3 = (center_x + math.cos(a2) * (current_radius + expand), center_y + math.sin(a2) * (current_radius + expand))
             else:
-                color = self.col_sector_normal
-                border_col = self.col_sector_normal
+                color = (40, 40, 50, 150) # Dimmed
+                border_col = (60, 60, 70, 150)
             
             # Draw Sector Body
             pygame.draw.polygon(surface, color, [p1, p2, p3, p4])
-            # Draw Border
-            pygame.draw.polygon(surface, border_col, [p1, p2, p3, p4], 2)
+            # Draw Border (Thicker if selected)
+            thickness = 4 if is_selected else 2
+            pygame.draw.polygon(surface, border_col, [p1, p2, p3, p4], thickness)
             
-            # Draw Item Icon/Label
+            # Draw Item Icon/Label (Small label on sector)
             # Center angle
             mid_angle = a1 + (a2 - a1)/2
             mid_dist = (current_inner + current_radius) / 2
-            if is_selected: mid_dist += 5
+            if is_selected: mid_dist += 10
             
             icon_x = center_x + math.cos(mid_angle) * mid_dist
             icon_y = center_y + math.sin(mid_angle) * mid_dist
             
-            # Text
-            text_col = (255, 255, 255) if is_selected else (200, 200, 200)
-            label = self.font.render(item['name'], True, text_col)
-            label_rect = label.get_rect(center=(icon_x, icon_y))
-            surface.blit(label, label_rect)
+            # For sectors, maybe just draw Icon? Or small text?
+            # If selected, we draw big text in center.
+            # So sector text can be smaller or omitted if redundant.
+            # Let's keep small text for unselected, or simple indicator.
+            if not is_selected:
+                text_col = (150, 150, 150)
+                label = self.font.render(item['name'], True, text_col)
+                label_rect = label.get_rect(center=(icon_x, icon_y))
+                surface.blit(label, label_rect)
             
         # Draw Center Hub
-        pygame.draw.circle(surface, self.col_bg, (int(center_x), int(center_y)), int(current_inner - 2))
-        pygame.draw.circle(surface, (100, 100, 100), (int(center_x), int(center_y)), int(current_inner - 2), 2)
+        hub_col = self.col_bg
+        if self.selected_index >= 0:
+             hub_col = (0, 50, 100, 240) # Blue tint when active
+             
+        pygame.draw.circle(surface, hub_col, (int(center_x), int(center_y)), int(current_inner - 2))
         
-        # Center Text/Icon (Selected Item?)
+        # Center Ring Border
+        ring_col = (100, 100, 100)
+        if self.selected_index >= 0:
+            ring_col = (0, 255, 255) # Cyan Ring
+        pygame.draw.circle(surface, ring_col, (int(center_x), int(center_y)), int(current_inner - 2), 3)
+        
+        # Center Text (Selected Item Name)
         if self.selected_index >= 0:
              sel_item = self.items[self.selected_index]
-             # Draw Large letter or Icon in center?
-             # For now just a circle highlight
-             pass
+             
+             # Draw Name
+             name_surf = self.large_font.render(sel_item['name'], True, (255, 255, 255))
+             name_rect = name_surf.get_rect(center=(center_x, center_y))
+             
+             # Text Shadow
+             shadow = self.large_font.render(sel_item['name'], True, (0, 0, 0))
+             shadow_rect = shadow.get_rect(center=(center_x + 2, center_y + 2))
+             surface.blit(shadow, shadow_rect)
+             
+             surface.blit(name_surf, name_rect)
 
     def get_selection(self):
         if self.selected_index >= 0 and self.selected_index < len(self.items):

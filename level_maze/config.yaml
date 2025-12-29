@@ -26,6 +26,12 @@ abilities:
     radius: 150.0
     push_force: 300.0
     throw_speed: 500.0
+  brick_bomb:
+    cooldown: 5.0
+    fuse_time: 3.0
+    throw_speed: 100.0
+    size: 40
+    clearance_factor: 1.5
 
 # Game Logic Settings
 enemies:

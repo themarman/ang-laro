@@ -1,5 +1,6 @@
 from level_maze.vfx import VFXManager
 from level_maze.roar_bomb import RoarBomb
+from level_maze.brick_bomb import BrickBomb
 import random
 import pygame
 import math
@@ -19,6 +20,7 @@ class Player:
         self.dash_config = config_manager.get_ability_config("dash")
         self.roar_config = config_manager.get_ability_config("roar")
         self.bomb_config = config_manager.get("abilities.roar_bomb") # Direct get as it might not be in default helper
+        self.brick_bomb_config = config_manager.get("abilities.brick_bomb")
         
         self.dash_cooldown_max = self.dash_config.get("cooldown", 10.0)
         self.dash_dist_mult = self.dash_config.get("distance_multiplier", 2.0)
@@ -27,17 +29,19 @@ class Player:
         self.roar_push_mult = self.roar_config.get("push_distance_multiplier", 5.0)
         
         self.bomb_cooldown_max = self.bomb_config.get("cooldown", 15.0) if self.bomb_config else 15.0
+        self.brick_bomb_cooldown_max = self.brick_bomb_config.get("cooldown", 5.0) if self.brick_bomb_config else 5.0
         
         self.dash_timer = 0.0
         self.dash_active_timer = 0.0 # Timer for i-frames
         self.dash_duration = 0.25 # Duration of invulnerability after dash
         self.roar_timer = 0.0
         self.bomb_timer = 0.0
+        self.brick_bomb_timer = 0.0
         
         # Radial Menu State
         self.selected_ability = "roar_bomb" # Default
         self.is_radial_menu_open = False
-        self.available_abilities = ["roar_bomb"] # Extendable
+        self.available_abilities = ["roar_bomb", "brick_bomb"] # Extendable
         
         # XP System
         self.xp = 0
@@ -55,6 +59,10 @@ class Player:
         # Frame Flags for Main Loop
         self.just_dashed = False
         self.just_roared = False
+        
+        # Brick Bomb Charge
+        self.brick_charge_duration = 0.0
+        self.pending_bombs = []
 
     def update(self, delta_time, input_handler, arena, obstacles):
         # Reset frame flags
@@ -71,6 +79,22 @@ class Player:
             self.roar_timer -= delta_time
         if self.bomb_timer > 0:
             self.bomb_timer -= delta_time
+        if self.brick_bomb_timer > 0:
+            self.brick_bomb_timer -= delta_time
+            
+        # Handle Charging Logic (Brick Bomb)
+        if self.selected_ability == 'brick_bomb':
+            is_held = input_handler.get_secondary_ability_state()
+            if is_held:
+                if self.brick_bomb_timer <= 0:
+                    self.brick_charge_duration += delta_time
+                    # Cap charge? Say 2.0s
+                    if self.brick_charge_duration > 2.0: self.brick_charge_duration = 2.0
+            else:
+                # Release
+                if self.brick_charge_duration > 0:
+                    self.fire_brick_bomb()
+                    self.brick_charge_duration = 0.0
             
         # VFX Updates
         self.vfx.update(delta_time)
@@ -249,34 +273,10 @@ class Player:
              # Ready indicator
             pygame.draw.circle(surface, (255, 150, 0), (int(self.position.x + 15), int(self.position.y + 22)), 2)
             
-        # Draw Radial Menu if Open
-        if self.is_radial_menu_open:
-            self.draw_radial_menu(surface)
+            
+        # Draw Radial Menu handled in main.py
 
-    def draw_radial_menu(self, surface):
-        # Draw ring around player
-        center = (int(self.position.x), int(self.position.y))
-        radius = 80
-        
-        # Semi-transparent BG
-        menu_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(menu_surf, (0, 0, 0, 150), (radius, radius), radius)
-        
-        # Draw Selection Slots
-        # Currently only Roar Bomb (Top)
-        # Draw icon/text
-        font = pygame.font.SysFont("Arial", 16, bold=True)
-        text = font.render("Roar Bomb", True, (255, 255, 255))
-        
-        # Position at top
-        text_rect = text.get_rect(center=(radius, radius - 50))
-        menu_surf.blit(text, text_rect)
-        
-        # Highlight Selected
-        if self.selected_ability == "roar_bomb":
-            pygame.draw.circle(menu_surf, (0, 255, 0), (radius, radius - 50), 5)
-        
-        surface.blit(menu_surf, (center[0] - radius, center[1] - radius))
+
 
     def take_damage(self, amount):
         if self.is_invulnerable():
@@ -301,6 +301,7 @@ class Player:
         self.dash_cooldown_max *= 0.9
         self.roar_cooldown_max *= 0.9
         self.bomb_cooldown_max *= 0.9
+        self.brick_bomb_cooldown_max *= 0.9
         self.health = 100 # Full heal on level up?
         
         print(f"LEVEL UP! Level {self.level}. Cooldowns reduced.")
@@ -361,16 +362,36 @@ class Player:
             return True 
         return False
         
+    def fire_brick_bomb(self):
+        # Calculate Size based on charge
+        # Base: 40. Max Charge (2.0s): 120 (3x?)
+        base_size = self.brick_bomb_config.get("size", 40)
+        
+        # Scaling
+        charge_factor = self.brick_charge_duration / 2.0 # 0 to 1
+        final_size = int(base_size + (base_size * 2 * charge_factor))
+        
+        direction = -self.look_direction
+        
+        # Pass final_size to config override? Or custom init?
+        # BrickBomb init takes config. We can inject size into a copy of config or pass extra arg.
+        # BrickBomb(..., config, ...). config['size'] is used.
+        # Let's pass a modified config dict.
+        bomb_cfg = self.brick_bomb_config.copy()
+        bomb_cfg['size'] = final_size
+        
+        brick = BrickBomb(self.position, direction, bomb_cfg, player_diameter=self.radius*2)
+        self.pending_bombs.append(brick)
+        
+        self.brick_bomb_timer = self.brick_bomb_cooldown_max
+        print(f"Player fired Charged Brick Bomb! Size: {final_size}")
+
     def attempt_secondary_ability(self):
         if self.selected_ability == "roar_bomb":
             if self.bomb_timer <= 0:
                 self.bomb_timer = self.bomb_cooldown_max
                 
-                # Throw Bomb backwards? Or forwards?
-                # User request: "chuck behind"
-                # But typically abilities are aimed.
-                # Request says: "it is something the player can chuck behind"
-                # This implies backward throw.
+                # Throw Bomb backwards
                 direction = -self.look_direction
                 
                 bomb = RoarBomb(self.position, direction, self.bomb_config)
@@ -378,6 +399,12 @@ class Player:
                 return bomb
             else:
                 print("Bomb on cooldown")
+        elif self.selected_ability == "brick_bomb":
+            # Handled in update() via charging logic
+            if self.brick_bomb_timer > 0 and self.brick_charge_duration == 0:
+                 print("Brick Bomb on cooldown")
+            return None
+                 
         return None
 
     def get_roar_radius(self):

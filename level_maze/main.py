@@ -1,5 +1,6 @@
 import pygame
 import sys
+import math
 from level_maze.config_manager import ConfigManager
 from level_maze.arena import Arena
 from level_maze.player import Player
@@ -11,6 +12,7 @@ from level_maze.input_handler import InputHandler
 from level_maze.combat_system import CombatSystem
 from level_maze.radial_menu import RadialMenu
 from level_maze.xtra_manager import XtraManager
+from level_maze.brick_bomb import BrickBomb
 
 def main():
     # ... (Config loading) ...
@@ -52,11 +54,13 @@ def main():
     # Define Abilities for Menu
     radial_menu.set_items([
         {'id': 'roar_bomb', 'name': 'Roar Bomb'},
+        {'id': 'brick_bomb', 'name': 'Brick Bomb'},
         {'id': 'cancel', 'name': 'Cancel'}
     ])
     
     enemies = []
     roar_bombs = []
+    brick_bombs = []
     
     def reset_game():
         # Create new player
@@ -71,7 +75,9 @@ def main():
         
         # Reset Enemies
         enemies.clear()
+        enemies.clear()
         roar_bombs.clear()
+        brick_bombs.clear()
         enemy_count = config_manager.get("enemies.count", 5)
         spawn_enemies(enemy_count, new_player)
         
@@ -112,9 +118,11 @@ def main():
     # Initial Game Start
     player = reset_game()
     
+    # Game State: START, PLAYING, PAUSED
+    game_state = "START"
+    
     # UI State
-    paused = False
-    # radial_menu_active is now managed via radial_menu.active
+    # paused = False # Removed in favor of game_state
     
     menu_options = ["Resume", "Restart", "Options", "Exit"]
     menu_selection = 0
@@ -127,6 +135,7 @@ def main():
     # Time Scaling
     time_scale = 1.0
     slowmo_timer = 0.0
+    start_screen_timer = 0.0
 
     # D-Pad State
     dpad_x = 0
@@ -136,9 +145,10 @@ def main():
     while running:
         # Time management
         real_dt = clock.tick(fps) / 1000.0
+        start_screen_timer += real_dt
         
-        # Slow Motion logic only if not in a menu
-        if not paused and not radial_menu.active:
+        # Slow Motion logic only if PLAYING
+        if game_state == "PLAYING" and not radial_menu.active:
              if slowmo_timer > 0:
                  slowmo_timer -= real_dt
                  time_scale = 0.2
@@ -148,7 +158,8 @@ def main():
              if game_dt > 0.1: game_dt = 0.1
         else:
              game_dt = 0 # Pause physics
-
+             
+        # Allow menu Update always? Or only when Playing?
         # Update Menu (Animation always runs)
         # Input Vector for Menu
         menu_input = pygame.Vector2(0,0)
@@ -158,6 +169,7 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             
+            is_start_btn = False # Explicit Start Button
             is_select_btn = False
             is_nav_up = False
             is_nav_down = False
@@ -165,15 +177,12 @@ def main():
             is_menu_wheel_btn = False
             
             if event.type == pygame.JOYBUTTONDOWN:
-                if event.button == 6 or event.button == 7: is_select_btn = True # Back/Start
+                if event.button == 7: is_start_btn = True # Start (Xbox)
+                if event.button == 6: is_select_btn = True # Back
                 if event.button == 0: is_confirm_btn = True # A
                 if event.button == 4: is_menu_wheel_btn = True # LB
             
             if event.type == pygame.JOYHATMOTION:
-                # Hat 0 is usually the D-Pad
-                # event.value is a tuple (x, y). 
-                # x: -1 Left, 1 Right
-                # y: -1 Down, 1 Up (Note: Standard Pygame hat Y is usually Up=1, Down=-1, logic check below)
                 dpad_x = event.value[0]
                 dpad_y = event.value[1]
                 
@@ -181,9 +190,10 @@ def main():
                 elif event.value[1] == -1: is_nav_down = True
             
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_TAB or event.key == pygame.K_ESCAPE:
-                    is_select_btn = True
-                if paused or radial_menu.active:
+                if event.key == pygame.K_ESCAPE: is_start_btn = True # Map ESC to Start/Pause toggle for ease?
+                if event.key == pygame.K_TAB: is_select_btn = True
+                
+                if game_state == "PAUSED" or radial_menu.active or game_state == "START":
                     if event.key == pygame.K_w or event.key == pygame.K_UP: 
                         is_nav_up = True
                         dpad_y = 1
@@ -203,12 +213,24 @@ def main():
                 # Keyboard mapping for menu wheel?
                 if event.key == pygame.K_q: is_menu_wheel_btn = True
 
-            # PAUSE TOGGLE (Standard Menu)
-            if is_select_btn and not radial_menu.active:
-                paused = not paused
+            # STATE: START
+            if game_state == "START":
+                if is_start_btn or is_confirm_btn:
+                    game_state = "PLAYING"
+                    # Optional: reset_game() here if we want fresh start on press
+                continue # Skip other input logic
+
+            # STATE: PLAYING / PAUSED INPUTS
+            
+            # PAUSE TOGGLE 
+            if is_start_btn or is_select_btn: # Start or Back pauses
+                if game_state == "PLAYING":
+                    game_state = "PAUSED"
+                elif game_state == "PAUSED":
+                    game_state = "PLAYING"
             
             # RADIAL MENU TOGGLE
-            if is_menu_wheel_btn and not paused:
+            if is_menu_wheel_btn and game_state == "PLAYING":
                 if radial_menu.active:
                     radial_menu.close()
                 else:
@@ -216,21 +238,9 @@ def main():
                     pass
                 
             # RADIAL MENU INPUT
-            if radial_menu.active:
+            if radial_menu.active and game_state == "PLAYING":
                 # Use D-Pad State
-                # Pygame hat: Y is Up=1.
-                # Radial Menu Math expects:
-                # Vector(0, 1) -> Up?
-                # atan2(y, x). 
-                # If we pass (0, 1): atan2(1, 0) = 90 deg.
-                # My logic: 90 is Down.
-                # Wait, screen Y is Down positive.
-                # If stick Up (-1), vector is (0, -1). atan2(-1, 0) = -90.
-                # My logic: -90 is Top.
-                # So for Hat Up=1, we should flip Y to match screen coords (-1) if we want standard behavior?
-                # Hat: Up=1. Screen: Up=-1.
-                # So pass -dpad_y to Y component.
-                
+                # ... (Same Logic) ...
                 menu_input = pygame.Vector2(dpad_x, -dpad_y)
                 
                 if is_confirm_btn:
@@ -238,6 +248,8 @@ def main():
                     if sel_id:
                         if sel_id == 'roar_bomb':
                             player.set_active_ability("roar_bomb")
+                        elif sel_id == 'brick_bomb':
+                            player.set_active_ability("brick_bomb")
                         elif sel_id == 'dash':
                             # Just visual or set something?
                             pass
@@ -247,7 +259,7 @@ def main():
                     radial_menu.close()
             
             # PAUSE MENU NAVIGATION
-            elif paused:
+            elif game_state == "PAUSED":
                 if is_nav_up:
                     menu_selection = (menu_selection - 1) % len(menu_options)
                 if is_nav_down:
@@ -256,20 +268,19 @@ def main():
                 if is_confirm_btn:
                     option = menu_options[menu_selection]
                     if option == "Resume":
-                        paused = False
+                        game_state = "PLAYING"
                     elif option == "Restart":
                         player = reset_game()
-                        paused = False
+                        game_state = "PLAYING"
                     elif option == "Options":
                         print("Options clicked (Not Implemented)")
                     elif option == "Exit":
                         running = False
 
         # Update Radial Menu Logic
-        # Time calc for animation: use real_dt
         radial_menu.update(real_dt, menu_input)
 
-        if not paused and not radial_menu.active:
+        if game_state == "PLAYING" and not radial_menu.active:
              # Regular Input
              input_state = input_handler.get_abilities_state()
              abilities['dash'] = input_state['dash']
@@ -294,7 +305,10 @@ def main():
              if input_handler.get_secondary_ability_state():
                  new_bomb = player.attempt_secondary_ability()
                  if new_bomb:
-                     roar_bombs.append(new_bomb)
+                     if isinstance(new_bomb, BrickBomb):
+                         brick_bombs.append(new_bomb)
+                     else:
+                         roar_bombs.append(new_bomb)
 
              # Check SlowMo Triggers (Flags from Player)
              if player.just_dashed:
@@ -302,7 +316,15 @@ def main():
              if player.just_roared:
                  slowmo_timer = 1.0
 
+             # Collect Pending Bombs
+             if player.pending_bombs:
+                 brick_bombs.extend(player.pending_bombs)
+                 player.pending_bombs = []
+
              # Update Entities (Use game_dt)
+             # Update Obstacle Manager (Lifespan check)
+             obstacle_manager.update(game_dt)
+             
              obstacles = obstacle_manager.get_obstacles()
              player.update(game_dt, input_handler, arena, obstacles)
              xtra_manager.update(game_dt, arena, obstacles)
@@ -316,6 +338,22 @@ def main():
                  if bomb.is_active:
                      active_bombs.append(bomb)
              roar_bombs = active_bombs
+             
+             # Update Brick Bombs
+             active_bricks = []
+             bombs_obstacles = obstacle_manager.get_obstacles() # Includes previously solidified
+             for bb in brick_bombs:
+                 # Update against Arena + Obstacles + Enemies
+                 bb.update(game_dt, arena, bombs_obstacles, enemies)
+                 if bb.is_solidified:
+                     # Convert to Obstacle
+                     # Lifespan: 1 Minute (60 seconds)
+                     obstacle_manager.add_dynamic_obstacle(bb.rect, bb.color, lifespan=60.0)
+                     # Remove from active list
+                     pass
+                 else:
+                     active_bricks.append(bb)
+             brick_bombs = active_bricks
                  
              combat_system.resolve_collisions(player, enemies, game_dt)
              combat_system.resolve_enemy_collisions(enemies)
@@ -347,14 +385,13 @@ def main():
              # Death Check (Trigger Menu)
              if player.health <= 0:
                  print("Player Died!")
-                 paused = True
+                 game_state = "PAUSED" # Or GAMEOVER
                  
              # Victory Check (All enemies dead)
              if len(enemies) == 0:
                  print("All Enemies Destroyed!")
-                 paused = True
-
-
+                 game_state = "PAUSED"
+         
         # Draw
         screen.fill((20, 20, 20))
         arena.draw(screen)
@@ -362,19 +399,54 @@ def main():
         xtra_manager.draw(screen)
         for enemy in enemies: enemy.draw(screen)
         for bomb in roar_bombs: bomb.draw(screen)
+        for bb in brick_bombs: bb.draw(screen)
+        
+        # Only draw player if not start screen? Or draw everything in BG?
+        # User said "when game start... have start overlay". Usually BG is visible.
         player.draw(screen)
         
         # Draw Radial Menu (Always called for animation fade out)
         if radial_menu.active or radial_menu.anim_progress > 0:
             radial_menu.draw(screen)
         
-        if paused:
+        if game_state == "PAUSED":
             draw_pause_menu(screen, width, height, menu_options, menu_selection, config_manager)
-
+        elif game_state == "START":
+            draw_start_screen(screen, width, height, start_screen_timer)
+            
         pygame.display.flip()
 
     pygame.quit()
     sys.exit()
+
+def draw_start_screen(surface, width, height, timer):
+    # Dim background
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180)) 
+    surface.blit(overlay, (0, 0))
+    
+    title_font = pygame.font.SysFont("Arial", 80, bold=True)
+    prompt_font = pygame.font.SysFont("Arial", 40, bold=True)
+    
+    # Title
+    # Shadow
+    title_text = "LEVEL MAZE"
+    ts = title_font.render(title_text, True, (0, 0, 0))
+    tr = ts.get_rect(center=(width//2 + 5, height//2 - 50 + 5))
+    surface.blit(ts, tr)
+    # Main
+    t = title_font.render(title_text, True, (0, 200, 255))
+    tr = t.get_rect(center=(width//2, height//2 - 50))
+    surface.blit(t, tr)
+    
+    # Prompt (Blinking)
+    alpha = 150 + 105 * math.sin(timer * 5.0)
+    prompt_text = "Press START to Begin"
+    
+    p = prompt_font.render(prompt_text, True, (255, 255, 255))
+    p.set_alpha(int(alpha))
+    pr = p.get_rect(center=(width//2, height//2 + 50))
+    surface.blit(p, pr)
 
 def draw_pause_menu(surface, width, height, options, selection, config_manager):
     # ... (Keep existing implementation) ...

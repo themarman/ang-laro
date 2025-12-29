@@ -10,6 +10,18 @@ class ObstacleManager:
     def reset(self):
         self.obstacles = []
 
+    def add_dynamic_obstacle(self, rect, color=(100, 100, 100), lifespan=None):
+        new_obs = Obstacle(rect.x, rect.y, rect.width, rect.height, color=color, lifespan=lifespan)
+        self.obstacles.append(new_obs)
+        
+    def update(self, dt):
+        active_obstacles = []
+        for obs in self.obstacles:
+            obs.update(dt)
+            if not obs.is_expired:
+                active_obstacles.append(obs)
+        self.obstacles = active_obstacles
+    
     def generate_obstacles(self, arena, player_safe_zone, num_obstacles=10):
         self.obstacles = []
         
@@ -23,9 +35,17 @@ class ObstacleManager:
             w = random.randint(30, 80)
             h = random.randint(30, 80)
             
-            # Random position within arena (accounting for wall thickness ~10)
-            # Inflation of - wall thickness and margin
-            spawn_area = arena.rect.inflate(-40, -40) 
+            # Random position within arena
+            # Enforce gap from walls. 
+            # We want the obstacle EDGES to be at least `gap_required` from the arena inner walls (arena.rect).
+            # arena.rect is the playable area boundary.
+            
+            gap_required = 50 # Defined below, logic pulled up
+            
+            # Spawn area should be reduced by gap_required on all sides.
+            # arena.inflate(-gap*2, -gap*2)
+            
+            spawn_area = arena.rect.inflate(-(gap_required*2), -(gap_required*2)) 
             
             if spawn_area.width <= w or spawn_area.height <= h:
                 continue
